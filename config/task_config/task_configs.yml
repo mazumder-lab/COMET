@@ -1,0 +1,65 @@
+# File used to specify the loss function to use for each task, the performance metrics to use, 
+# the paths to the raw data,...
+# WARNING: the model config file should mention an appropriate architecture for the model to
+# fulfill the tasks of this file.
+# Note: to add a custom metric, just subclass the Metric class in a file and add the class to the MetricMapper in task_utils.py
+TASKSET2: 
+  taskset_id: 2
+  name: movielens
+  raw_data_bpath: /../MixtureOfExperts_shared/raw/movielens/
+  tasks: 
+    - name: watch_classification
+      loss: BinaryCrossentropy
+      metrics: [BinaryAccuracy,AUC] 
+      hyperparam_search_metric: Loss
+      instances: 1
+    - name: rating_regression
+      loss: CustomMovielensMeanSquaredError
+      metrics: [MaskedMovielensMeanSquaredError] 
+      hyperparam_search_metric: Loss
+      instances: 1
+TASKSET9: 
+  taskset_id: 9
+  name: multi_mnist
+  raw_data_bpath: /data/raw/multi_mnist/
+  tasks:
+    - name: top_left_multiclass_classification
+      loss: SparseCategoricalCrossentropy
+      metrics: [SparseCategoricalAccuracy]
+      hyperparam_search_metric: Loss
+      instances: 1
+    - name: bottom_right_multiclass_classification
+      loss: SparseCategoricalCrossentropy
+      metrics: [SparseCategoricalAccuracy]
+      hyperparam_search_metric: Loss
+      instances: 1
+TASKSET10: 
+  taskset_id: 10
+  name: multi_fashion_mnist
+  raw_data_bpath: /data/raw/multi_fashion_mnist/
+  tasks:
+    - name: top_left_multiclass_classification
+      loss: SparseCategoricalCrossentropy
+      metrics: [SparseCategoricalAccuracy]
+      hyperparam_search_metric: Loss
+      instances: 1
+    - name: bottom_right_multiclass_classification
+      loss: SparseCategoricalCrossentropy
+      metrics: [SparseCategoricalAccuracy]
+      hyperparam_search_metric: Loss
+      instances: 1
+TASKSET17: 
+  taskset_id: 17
+  name: books
+  raw_data_bpath: /../MixtureOfExperts_shared/books/
+  tasks: 
+    - name: watch_classification
+      loss: BinaryCrossentropy
+      metrics: [BinaryAccuracy,AUC] 
+      hyperparam_search_metric: Loss
+      instances: 1
+    - name: rating_regression
+      loss: CustomMovielensMeanSquaredError
+      metrics: [MaskedMovielensMeanSquaredError] 
+      hyperparam_search_metric: Loss
+      instances: 1

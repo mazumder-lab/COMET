@@ -1,0 +1,29 @@
+{
+    "nb_epochs": 100,
+    "train_batch_size": 256,
+    "val_batch_size": 128,
+    "grad_acc_steps": 1,
+    "taskset_id": 13,
+    "optimizer": {
+        "type": "Adam",
+        "params": {
+            "learning_rate": {
+                "optuna_type": "suggest_loguniform",
+                "values": [1e-3, 1e-2]
+            }
+        }
+    },
+    "callbacks": [
+        {
+            "type": "TerminateOnNaN",
+            "params": {}
+        },
+        {
+            "type": "EarlyStopping",
+            "params": {
+                "patience": 25,
+                "restore_best_weights": true
+            }
+        }
+    ]
+}

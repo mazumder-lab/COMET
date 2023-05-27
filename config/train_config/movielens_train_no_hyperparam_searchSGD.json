@@ -1,0 +1,20 @@
+{
+    "nb_epochs": 10,
+    "train_batch_size": 1024,
+    "val_batch_size": 1024,
+    "grad_acc_steps": 1,
+    "taskset_id": 2,
+    "task_weights": [0.9, 0.1],
+    "optimizer": {
+        "type": "SGD",
+        "params": {
+            "learning_rate": 5e-1
+        }
+    },
+    "callbacks": [
+        {
+            "type": "TerminateOnNaN",
+            "params": {}
+        }
+    ]
+}

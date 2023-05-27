@@ -1,0 +1,35 @@
+{
+    "nb_epochs": 500,
+    "train_batch_size": {
+        "optuna_type": "suggest_categorical",
+        "values": [128, 256, 512, 1024]
+    },
+    "val_batch_size": 2048,
+    "taskset_id": 6,
+    "optimizer": {
+        "type": "SGD",
+        "params": {
+            "learning_rate": {
+                "optuna_type": "suggest_categorical",
+                "values": [1e-3, 2.5e-3, 5e-3, 7.5e-3, 1e-2, 2.5e-2, 5e-2, 7.5e-2, 1e-1, 2.5e-1,5e-1,1]
+            }
+        },
+        "learning_rate_scheduling": false
+    },
+    "callbacks": [
+        {
+            "type": "EarlyStopping",
+            "params": {
+                "monitor": "val_loss",
+                "patience": 25,
+                "restore_best_weights": true
+            }
+        },
+        {
+            "type": "TerminateOnNaN",
+            "params": {}
+        }
+    ],
+    "enforce_simplex_tol": 1e-2,
+    "display_task_metrics_each_epoch": false
+}
