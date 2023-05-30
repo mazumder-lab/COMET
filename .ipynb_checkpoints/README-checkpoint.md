@@ -35,6 +35,21 @@ python3 main.py
 --perform_weight_recovery_analysis
 ```
 
+
+## Citing COMET
+If you find COMET useful in your research, please consider citing the following paper.
+
+```
+@inproceedings{Ibrahim2023,
+author = {Ibrahim, Shibal and Chen, Wenyu and Hazimeh, Hussein and Ponomareva, Natalia and Zhao, Zhe and Mazumder, Rahul},
+title = {COMET: Learning Cardinality Constrained Mixture of Experts with Trees and Local Search},
+year = {2023},
+booktitle = {Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining},
+location = {Long Beach CA, USA},
+series = {KDD '23}
+}
+```
+
 ```python
 
 ```
