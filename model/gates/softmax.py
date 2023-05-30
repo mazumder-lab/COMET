@@ -186,19 +186,3 @@ class SoftmaxGate(tf.keras.layers.Layer):
             self.add_metric(simplex_constraint_fails, name='simplex_constraint_fails_for_task_{}'.format(self.task+1))
             
             return y, soft_averages, hard_averages
-
-
-
-if __name__ == "__main__":
-    config = {
-        "use_routing_input": True,
-        "nb_experts": 4
-    }
-    s = SoftmaxGate(config)
-    h = [
-        np.random.random((8, 10)) for _ in range(config["nb_experts"])
-    ]
-    x = np.random.random((8, 5))
-    print(s((h,x)).shape)
-            
-        
