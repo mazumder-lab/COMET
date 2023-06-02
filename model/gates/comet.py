@@ -189,7 +189,7 @@ class COMETGate(tf.keras.layers.Layer):
                 w_concat = tf.concat([w_left_child, w_right_child], axis=-1)
                 if self.node_index==0:
                     w_agg = tf.reduce_sum(w_concat, axis=-1)
-                    y_agg = f_agg/w_agg
+                    y = f_agg/w_agg
                     w_concat = w_concat/tf.reduce_sum(w_concat, axis=-1, keepdims=True)  # (b=1, 1, nb_experts)
                     # Compute s_bj
                     s_concat = tf.where(
@@ -205,7 +205,7 @@ class COMETGate(tf.keras.layers.Layer):
                         avg_sparsity,
                         name='avg_sparsity'
                     )    
-                    return y_agg
+                    return y
                 else:
                     return f_agg, w_concat
             else:
@@ -251,19 +251,19 @@ class COMETGate(tf.keras.layers.Layer):
                     f = tf.expand_dims(f, axis=2) # (b, dim_exp_i, 1, nb_experts)
         
                     s_bj = tf.reshape(s_bj, shape=[tf.shape(s_bj)[0], -1]) # (b, k*nb_experts)
-                    s_bj = tf.nn.softmax(s_bj, axis=-1) # (b, k*nb_experts)
-                    w_concat = tf.reshape(s_bj, shape=[tf.shape(s_bj)[0], self.k, self.nb_experts]) # (b, k, nb_experts)
-                    w_concat = tf.expand_dims(w_concat, axis=1) # (b, 1, k, nb_experts)
+                    g = tf.nn.softmax(s_bj, axis=-1) # (b, k*nb_experts)
+                    g = tf.reshape(g, shape=[tf.shape(s_bj)[0], self.k, self.nb_experts]) # (b, k, nb_experts)
+                    g = tf.expand_dims(g, axis=1) # (b, 1, k, nb_experts)
 
-                    # w_concat: (b, 1, k, nb_experts), perm_mask: [k, nb_experts, nb_experts]
+                    # g: (b, 1, k, nb_experts), perm_mask: [k, nb_experts, nb_experts]
 
-                    g_permuted = tf.einsum('bijk,jkl->bijl', w_concat, permutation_weights)
+                    g_permuted = tf.einsum('bijk,jkl->bijl', g, permutation_weights)
                     g_permuted = tf.reduce_sum(g_permuted, axis=2, keepdims=True) # (b, 1, 1, nb_experts)
                     g_permuted = g_permuted/tf.reduce_sum(g_permuted, axis=-1, keepdims=True)  # (b, 1, 1, nb_experts)
                     
 
                     # f:(b, dim_exp_i, 1, nb_experts) * g_permuted: (b, 1, 1, nb_experts)
-                    y_agg = tf.reduce_sum(f * g_permuted, axis=[2,3]) # (b, dim_exp_i, 1, nb_experts) -> (b, dim_exp_i)
+                    y = tf.reduce_sum(f * g_permuted, axis=[2,3]) # (b, dim_exp_i, 1, nb_experts) -> (b, dim_exp_i)
 
                     # Compute s_bj
                     s_concat = tf.where(
@@ -309,7 +309,7 @@ class COMETGate(tf.keras.layers.Layer):
                     simplex_constraint_fails = tf.reduce_mean(simplex_constraint_fails, axis=0)
                     self.add_metric(simplex_constraint_fails, name='simplex_constraint_fails_for_task_{}'.format(self.task+1))
                     
-                    return y_agg, soft_averages, hard_averages
+                    return y, soft_averages, hard_averages
                 else:
                     return s_bj#, s_bj_sp
             else:
