@@ -1,3 +1,11 @@
+"""This is code for COMET gate
+
+Ref: Shibal Ibrahim, Wenyu Chen, Hussein Hazimeh, Natalia Ponomareva, Zhe Zhao, Rahul Mazumder. COMET: Learning Cardinality Constrained Mixture of Experts with Trees and Local Search. In KDD 2023.
+
+"""
+
+"""A Keras layer for the COMET gate."""
+
 import tensorflow as tf 
 import numpy as np
 from tensorflow.python.keras.utils import control_flow_util 
@@ -39,22 +47,33 @@ class SmoothStep(tf.keras.layers.Layer):
 
 
 class COMETGate(tf.keras.layers.Layer):
-    """An ensemble of soft decision trees.
-    
-    The layer returns the sum of the decision trees in the ensemble.
-    Each soft tree returns a vector, whose dimension is specified using
-    the `leaf_dims' parameter.
-    
-    Implementation Notes:
-        This is a fully vectorized implementation. It treats the ensemble
-        as one "super" tree, where every node stores a dense layer with 
-        num_trees units, each corresponding to the hyperplane of one tree.
-    
+    """A custom layer for selecting a sparse mixture of experts.
+    Let f_1, f_2, ..., f_n be the experts. The layer returns:
+              g_1 * f_1 + g_2 * f_2 + ... + g_n * f_n,
+    where the mixture weights satisfy:
+        (1) cardinality constraint: ||g||_0 <= k
+        (2) simplex constraint: g_1, ..., g_n >= 0 and g_1 + ... + g_n = 1.
+    The number of non-zeros in the mixture weights can be directly controlled.
+    The layer is trained using first-order methods like SGD.
+
     Input:
-        An input tensor of shape = (batch_size, ...)
+        The inputs should be as follows:
+            inputs: Tuple of the form: (f, routing_inputs, permutation_weights)
+                f: list of experts f_i, each with same shape.
+                routing_inputs: 2D tensor of input examples
+                permutation_weights: identity or permutation from Permutation-based Local Search.
+            training: 
+                Ignored
+            indices:
+                Ignored
 
     Output:
-        An output tensor of shape = (batch_size, leaf_dims)
+        Tensor, with the same shape as the expert tensors.
+        
+    Implementation Notes:
+        This uses k trees and is a fully vectorized implementation of trees. It treats the ensemble
+        of k trees as one "super" tree, where every node stores a dense layer with num_trees units,
+        each corresponding to the hyperplane of one tree.
     """
 
     def __init__(self,
@@ -70,17 +89,10 @@ class COMETGate(tf.keras.layers.Layer):
         self.nb_experts = config["nb_experts"]
         self.max_depth = (int)(np.ceil(np.log2(self.nb_experts)))
         self.k = config["k"]
-        self.L2 = config["L2"]
-#         tf.print("=========self.nb_experts:", self.nb_experts)
-#         tf.print("=========self.max_depth:", self.max_depth)
         self.node_index = node_index
-#         tf.print("=========self.node_index:", self.node_index)
         self.depth_index = depth_index
-#         self.max_split_nodes = 2**self.max_depth - 1
         self.max_split_nodes = self.nb_experts - 1
-#         self.leaf = node_index >= self.max_split_nodes
         self.leaf = node_index >= self.nb_experts - 1
-#         assert self.nb_experts == 2**self.max_depth # to check number of experts is a power of 2 
 
         self.gamma = config["gamma"]
         self._z_initializer = config["z_initializer"] or tf.keras.initializers.RandomUniform(
@@ -89,13 +101,6 @@ class COMETGate(tf.keras.layers.Layer):
         self.activation = SmoothStep(self.gamma)
         
         self.entropy_reg = config["entropy_reg"]
-        if "temperature" in config.keys():
-            self.iterations = tf.Variable(initial_value=0, trainable=False, name='iterations')
-            self.temperature = (
-                tf.constant(config["temperature"]) if config["temperature"] is not None else config["temperature"]
-            )
-        else:
-            self.temperature = None
             
         if not self.use_routing_input:
             if not self.leaf:
@@ -109,10 +114,6 @@ class COMETGate(tf.keras.layers.Layer):
                 self.right_child = COMETGate(config, 2*self.node_index+2, depth_index=self.depth_index+1, name="Node-"+str(2*self.node_index+2))
             else:
                 masking = np.zeros((1, 1, self.nb_experts))
-#                 tf.print("=========self.nb_experts:", self.nb_experts)
-#                 tf.print("=========self.node_index:", self.node_index)
-#                 tf.print("=========self.max_split_nodes:", self.max_split_nodes)
-#                 tf.print("=========self.node_index-self.max_split_nodes:", self.node_index-self.max_split_nodes)
                 masking[:,:,self.node_index-self.max_split_nodes] = masking[:,:, self.node_index-self.max_split_nodes] + 1
                 self.masking = tf.constant(masking, dtype=self.dtype)
                 self.output_weights = self.add_weight(
@@ -129,17 +130,9 @@ class COMETGate(tf.keras.layers.Layer):
                     activation=self.activation,
                     kernel_initializer=self._z_initializer,
                     bias_initializer=self._z_initializer, 
-                    kernel_regularizer=tf.keras.regularizers.L2(self.L2)
                 )
                 self.left_child = COMETGate(config, 2*self.node_index+1, depth_index=self.depth_index+1, name="Node-"+str(2*self.node_index+1))
                 self.right_child = COMETGate(config, 2*self.node_index+2, depth_index=self.depth_index+1, name="Node-"+str(2*self.node_index+2))
-                if self.balanced_splitting:
-                    self.alpha_ave_past = self.add_weight(
-                        name="alpha_ave",
-                        shape=(1, self.k),
-                        initializer='zeros',
-                        trainable=False
-                    )
 
             else:
                 self.output_layer = tf.keras.layers.Dense(
@@ -150,24 +143,9 @@ class COMETGate(tf.keras.layers.Layer):
                     bias_initializer=self._w_initializer,    
                     kernel_regularizer=tf.keras.regularizers.L2(self.L2)
                 )
-                
-    #             self.leaf_weight = self.add_weight(shape=[1, self.leaf_dims, self.num_trees], trainable=True, name="Node-"+str(self.node_index))
-            
+                            
     def build(self, input_shape):
         pass
-
-#     def _compute_weights(self, s_left_child, s_right_child, d_left_child, d_right_child):
-#         s_bj_concat = tf.concat([s_left_child, s_right_child], axis=-1) # (b, 2)
-#         s_bj = tf.math.reduce_logsumexp(s_bj_concat, axis=-1, keepdims=True) # (b, 1)
-#         s_bj_normalized = tf.nn.softmax(s_bj_concat, axis=-1) # (b, 2)
-
-#         s_left_child_normalized, s_right_child_normalized = tf.split(s_bj_normalized, num_or_size_splits=2, axis=-1)
-#         d_bj = tf.concat([
-#             s_left_child_normalized*d_left_child,
-#             s_right_child_normalized*d_right_child
-#         ], axis=-1) # (b, j)
-#         return s_bj, d_bj
-
     
     def _compute_entropy_regularization_per_expert(
         self,
@@ -191,17 +169,15 @@ class COMETGate(tf.keras.layers.Layer):
         indices=None
     ):
         
-        h, x, permutation_weights = inputs
-        
-        # tf.print("\ninput of softmax gate: ",len(h), h[0].shape, x.shape)
-        assert(all([h[i].shape[1] == h[i+1].shape[1] for i in range(len(h)-1)]))
+        f, x, permutation_weights = inputs
+        assert(all([f[i].shape[1] == f[i+1].shape[1] for i in range(len(f)-1)]))
 
-        # h: [(bs, dim_exp_i, 1) for i in range(nb_experts)] with dim_exp_i = dim_exp = constant
-        h = [tf.expand_dims(t, -1) for t in h]
+        # f: [(bs, dim_exp_i, 1) for i in range(nb_experts)] with dim_exp_i = dim_exp = constant
+        f = [tf.expand_dims(t, -1) for t in f]
 
-        # h: (bs, dim_exp_i, nb_experts)
-        h = tf.concat(h, axis=2)
-        # tf.print("h concat shape: ", h.shape)
+        # f: (bs, dim_exp_i, nb_experts)
+        f = tf.concat(f, axis=2)
+        # tf.print("f concat shape: ", f.shape)
         
         if not self.use_routing_input:
             if not self.leaf:
@@ -246,8 +222,8 @@ class COMETGate(tf.keras.layers.Layer):
 #                 tf.print("======w_bj.shape: ", w_bj.shape)
                 
                 # Computing f_bj
-                # Get output of specific expert:  h:(b, dim_exp_i, nb_experts), self.masking: (1, 1, self.nb_experts)
-                h_bj = tf.reduce_sum(h * self.masking, axis=-1, keepdims=True) # (b, dim_exp_i, 1)
+                # Get output of specific expert:  f:(b, dim_exp_i, nb_experts), self.masking: (1, 1, self.nb_experts)
+                h_bj = tf.reduce_sum(f * self.masking, axis=-1, keepdims=True) # (b, dim_exp_i, 1)
                 f_bij = r_bij * h_bj # (b, dim_exp_i, k)
                 f_bj = tf.reduce_sum(f_bij, axis=-1) # (b, dim_exp_i, k) -> (b, dim_exp_i) 
 #                 tf.print("======f_bj.shape: ", f_bj.shape)
@@ -269,12 +245,10 @@ class COMETGate(tf.keras.layers.Layer):
                 s_left_child = self.left_child(inputs, training=training, prob=current_prob * prob)
                 s_right_child = self.right_child(inputs, training=training, prob=(1 - current_prob) * prob)
                 s_bj = tf.concat([s_left_child, s_right_child], axis=-1)
-#                 s_bj_sp = tf.concat([s_left_child_sp, s_right_child_sp], axis=-1)  
 
 
                 if self.node_index==0:
-                    h = tf.expand_dims(h, axis=2) # (b, dim_exp_i, 1, nb_experts)
-#                     tf.print("======h.shape: ", tf.shape(h))        
+                    f = tf.expand_dims(f, axis=2) # (b, dim_exp_i, 1, nb_experts)
         
                     s_bj = tf.reshape(s_bj, shape=[tf.shape(s_bj)[0], -1]) # (b, k*nb_experts)
                     s_bj = tf.nn.softmax(s_bj, axis=-1) # (b, k*nb_experts)
@@ -283,19 +257,19 @@ class COMETGate(tf.keras.layers.Layer):
 
                     # w_concat: (b, 1, k, nb_experts), perm_mask: [k, nb_experts, nb_experts]
 
-                    w_permuted = tf.einsum('bijk,jkl->bijl', w_concat, permutation_weights)
-                    w_permuted = tf.reduce_sum(w_permuted, axis=2, keepdims=True) # (b, 1, 1, nb_experts)
-                    w_permuted = w_permuted/tf.reduce_sum(w_permuted, axis=-1, keepdims=True)  # (b, 1, 1, nb_experts)
+                    g_permuted = tf.einsum('bijk,jkl->bijl', w_concat, permutation_weights)
+                    g_permuted = tf.reduce_sum(g_permuted, axis=2, keepdims=True) # (b, 1, 1, nb_experts)
+                    g_permuted = g_permuted/tf.reduce_sum(g_permuted, axis=-1, keepdims=True)  # (b, 1, 1, nb_experts)
                     
 
-                    # h:(b, dim_exp_i, 1, nb_experts) * w_permuted: (b, 1, 1, nb_experts)
-                    y_agg = tf.reduce_sum(h * w_permuted, axis=[2,3]) # (b, dim_exp_i, 1, nb_experts) -> (b, dim_exp_i)
+                    # f:(b, dim_exp_i, 1, nb_experts) * g_permuted: (b, 1, 1, nb_experts)
+                    y_agg = tf.reduce_sum(f * g_permuted, axis=[2,3]) # (b, dim_exp_i, 1, nb_experts) -> (b, dim_exp_i)
 
                     # Compute s_bj
                     s_concat = tf.where(
-                        tf.math.less(w_permuted, 1e-5),
-                        tf.ones_like(w_permuted),
-                        tf.zeros_like(w_permuted)
+                        tf.math.less(g_permuted, 1e-5),
+                        tf.ones_like(g_permuted),
+                        tf.zeros_like(g_permuted)
                     ) # (b, 1, 1, nb_experts)
                     s_avg = tf.reduce_mean(s_concat, axis=-1) # (b, 1, 1)
 
@@ -304,7 +278,7 @@ class COMETGate(tf.keras.layers.Layer):
                         avg_sparsity,
                         name='avg_sparsity'
                     )    
-                    soft_averages = tf.reduce_mean(w_permuted, axis=[0,1,2]) # (nb_experts,)
+                    soft_averages = tf.reduce_mean(g_permuted, axis=[0,1,2]) # (nb_experts,)
                     hard_averages = tf.reduce_mean(tf.ones_like(s_concat)-s_concat, axis=[0,1,2]) # (nb_experts,)
                     soft_averages_for_all_experts_list = tf.split(
                         tf.reshape(soft_averages, [-1]),
@@ -318,12 +292,12 @@ class COMETGate(tf.keras.layers.Layer):
 #                     [self.add_metric(le, name='hard_averages_for_task_{}_for_expert_{}'.format(self.task+1, j)) for j, le in enumerate(hard_averages_for_all_experts_list)]   
                     
                     simplex_constraint = tf.reduce_mean(
-                        tf.reduce_sum(w_permuted, axis=-1),
+                        tf.reduce_sum(g_permuted, axis=-1),
                     )
                     self.add_metric(simplex_constraint, name='simplex_sum_for_task_{}'.format(self.task+1))
 
                     simplex_constraint_fails = tf.reduce_sum(
-                        tf.reduce_sum(w_permuted, axis=-1),
+                        tf.reduce_sum(g_permuted, axis=-1),
                         axis=[1,2]
                     ) # (b, )
 
@@ -364,4 +338,4 @@ class COMETGate(tf.keras.layers.Layer):
                     regularization_per_expert
                 ) 
 
-                return s_bj#,s_bj_sp
+                return s_bj #,s_bj_sp
