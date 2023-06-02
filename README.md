@@ -49,7 +49,3 @@ location = {Long Beach CA, USA},
 series = {KDD '23}
 }
 ```
-
-```python
-
-```
