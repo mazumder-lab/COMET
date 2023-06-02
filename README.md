@@ -14,7 +14,7 @@ The codebase has been tested with Python 3.8 and the following packages
 ```
 numpy==1.21.6
 scikit_learn==1.0.2
-tensorflow==2.4.1
+tensorflow==2.9.2
 ```
 
 
