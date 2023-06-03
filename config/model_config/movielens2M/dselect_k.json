@@ -22,50 +22,40 @@
     ],
     "permutations": [
         {
-            "module": "LearnPermutations",
+            "module": "NoPermutations",
             "params": {
-                "input_size": 10,
-                "learn_k_permutations": false,
-                "epochs_per_for_learning_permutation": {
-                    "optuna_type": "suggest_loguniform",
-                    "values": [0.01, 0.10]                      
-                },
-                "epochs_for_learning_permutation": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [null]                      
-                },
-                "noise_factor": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [0.0]  
-                },
-                "perm_entropy_reg": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [1e-4]  
-                }
+                "input_size": 10
              },
             "instances": 1
         }
     ],
     "gates": [
         {
-            "module": "HashRoutingGate",
+            "module": "DSelectKWrapperGate",
             "params": {
-                "input_size": 1,
-                "k": 1,
-                "use_routing_input": true
+                "k": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [2]      
+                },
+                "input_size": 10,
+                "gamma": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [1e-3, 1e-2, 1e-1, 1, 5, 10]                            
+                },
+                "entropy_reg": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [5e-2, 1e-1, 5e-1, 1, 5, 10]  
+                },
+                "z_initializer": null,
+                "w_initializer": null,
+                "zeta": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [1.0]  
+                }
             },
             "instances": 2
         }
     ],
-    "load_balancing": {
-        "module": "NoLoadBalancing",
-        "params": {
-            "load_balancing_penalty": {
-                "optuna_type": "suggest_categorical",
-                "values": [0.0]  
-            }
-         }
-    },
     "heads": [
         {
             "module": "DenseClassifier",

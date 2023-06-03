@@ -48,51 +48,14 @@
     ],
     "gates": [
         {
-            "module": "SoftKTreesEnsembleGate",
+            "module": "HashRoutingGate",
             "params": {
-                "k": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [2]      
-                },
-                "input_size": 10,
-                "gamma": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [10.0]                      
-                },
-                "use_routing_input": true,
-                "use_in_training": true,
-                "entropy_reg": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [5e-2, 1e-1, 5e-1, 1, 5, 10]
-                },
-                "z_initializer": null,
-                "w_initializer": null,
-                "L2": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [0.0]  
-                },
-                "balanced_splitting": false,
-                "balanced_splitting_penalty": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [0.0]  
-                },
-                "exp_decay_mov_ave": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [1e-4, 1e-3, 1e-2, 1e-1]  
-                }
+                "input_size": 1,
+                "k": 1,
             },
             "instances": 2
         }
     ],
-    "load_balancing": {
-        "module": "NoLoadBalancing",
-        "params": {
-            "load_balancing_penalty": {
-                "optuna_type": "suggest_categorical",
-                "values": [0.0]  
-            }
-         }
-    },
     "heads": [
         {
             "module": "DenseClassifier",

@@ -15,17 +15,11 @@ class DenseClassifier(tf.keras.layers.Layer):
         self,
         x
     ):
-        y = tf.nn.sigmoid(
-            self.dense2(x)
+        h = tf.keras.activations.relu(
+            self.dense1(x)
         )
-#         h = tf.keras.activations.relu(
-#             self.dense1(x)
-#         )
-#         y = tf.nn.sigmoid(
-#             self.dense2(h)
-#         )
+        y = tf.nn.sigmoid(
+            self.dense2(h)
+        )
 
-        #y = tf.keras.activations.sigmoid(
-        #    self.dense2(h)
-        #)
         return y

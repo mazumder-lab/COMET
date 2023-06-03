@@ -19,5 +19,4 @@ class DenseRegressor(tf.keras.layers.Layer):
             self.dense1(x)
         )
         y = self.dense2(h)
-        # print(y[0:3])
         return y

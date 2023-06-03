@@ -22,9 +22,26 @@
     ],
     "permutations": [
         {
-            "module": "NoPermutations",
+            "module": "LearnPermutations",
             "params": {
-                "input_size": 10
+                "input_size": 10,
+                "learn_k_permutations": false,
+                "epochs_per_for_learning_permutation": {
+                    "optuna_type": "suggest_loguniform",
+                    "values": [0.01, 0.10]                      
+                },
+                "epochs_for_learning_permutation": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [null]                      
+                },
+                "noise_factor": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [0.0]  
+                },
+                "perm_entropy_reg": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [1e-4]  
+                }
              },
             "instances": 1
         }
@@ -38,8 +55,7 @@
                     "optuna_type": "suggest_categorical",
                     "values": [2]      
                 },
-                "use_routing_input": true,
-                "use_bias": true
+                "jitter": false
             },
             "instances": 2
         }

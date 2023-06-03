@@ -35,20 +35,10 @@
             "params": {
                 "input_size": 1,
                 "k": 1,
-                "use_routing_input": true
             },
             "instances": 2
         }
     ],
-    "load_balancing": {
-        "module": "NoLoadBalancing",
-        "params": {
-            "load_balancing_penalty": {
-                "optuna_type": "suggest_categorical",
-                "values": [0.0]  
-            }
-         }
-    },
     "heads": [
         {
             "module": "DenseClassifier",

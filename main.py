@@ -28,7 +28,6 @@ from task_utils import (
     LoadLosses,
     ForwardModel,
     AssignWeights,
-    WeightRecoveryEvaluation,
     LinearEpochGradualWarmupPolynomialDecayLearningRate,
 )
 from model.main_model import MoE
@@ -106,12 +105,6 @@ def main():
         default=15,
         type=int,
         help="Number of hyperparameter trials to conduct.",
-    )
-    parser.add_argument(
-        "--perform_weight_recovery_analysis",
-        default=True,
-        type=bool,
-        help="Whether to use the ground_truth_weights_location mentioned to perform weight recovery analysis.",
     )
     args = parser.parse_args()
     
@@ -286,14 +279,7 @@ def trial_wrapper(trial, train_dataset, val_dataset, test_dataset):
             if perm["params"]["epochs_per_for_learning_permutation"] is not None:
                 if perm["params"]["epochs_for_learning_permutation"] is None:
                     perm["params"]["epochs_for_learning_permutation"] = int(perm["params"]["epochs_per_for_learning_permutation"]*config["nb_epochs"])
-    
-    if config["load_balancing"]["module"] == "KLDivLoadBalancing":
-        if config["load_balancing"]["params"]["scheduler"]: 
-            config["load_balancing"]["params"]["steps_per_epoch"] = int(train_steps_per_epoch)
-            if config["load_balancing"]["params"]["epochs_per_for_load_balance_warm_up"] is not None:
-                config["load_balancing"]["params"]["epochs_for_load_balance_warm_up"] = int(config["load_balancing"]["params"]["epochs_per_for_load_balance_warm_up"]*config["nb_epochs"])
-            config["load_balancing"]["params"]["total_epochs"] = 20
-                
+                    
 
     # We start the trial.
     print(f"\n\n\n\n#################################### Trial {trial_nb} ####################################")
@@ -483,20 +469,6 @@ def trial_wrapper(trial, train_dataset, val_dataset, test_dataset):
     if np.isnan(val_loss_hyperparam_search):
         val_loss_hyperparam_search = np.inf        
 
-    # A simple check to see whether gate weights all sum up to one (only for DSelect-K for now).
-    # if "enforce_simplex_tol" in config.keys() and config["enforce_simplex_tol"] != None:
-    #     tol = config["enforce_simplex_tol"]
-    #     try:
-    #         for gate in model.gates:
-    #             if "d_select_k" in gate.name:
-    #                 weights = gate.gate._compute_expert_weights()[0].numpy()
-    #                 if abs(sum(weights) - 1.0) > tol:
-    #                     # invalid result obtained in the trial
-    #                     val_loss_hyperparam_search = np.inf
-    #                     break
-    #     except:
-    #         pass
-
     print(f"End of trial; best hyperparameter search loss: {val_loss_hyperparam_search}")
     
                     
@@ -605,106 +577,7 @@ def trial_wrapper(trial, train_dataset, val_dataset, test_dataset):
         'sparsity': sparsity,
         'best_epoch': best_epoch
     }
-
-#     else:
-#         print("\n")
-#         # We create a doc object that contains all our measurements for this trial.
-#         # No test set measurements here.
-#         trial_results = {
-#             'trial_nb': trial_nb,
-#             'best_hyperparam_search_loss_val': val_loss_hyperparam_search,
-#             'best_metrics_val': best_metrics_val_list,
-#             'config': config,
-#             'metrics': metrics,
-#             'loss': loss,
-#             'sparsity': sparsity,
-#             'best_epoch': best_epoch
-#         }
-
-
-    # One last case before the end of the trial: 
-    # if our taskset involves a weight recovery evaluation (i.e.: how do the weights of our trained model compare to that of 
-    # a ground truth data generating function), then we perform the weight recovery analysis here.
-    if config["taskset"]["taskset_id"] == 12:
-        if config["use_MoE_stacked"]:
-            print("##### WARNING: use of stacked experts and gates for weight recovery eval not supported yet #####")
-        else:
-            if config["gates"][0]["params"]["use_routing_input"]:
-                print("##### WARNING: weight recovery eval on instance-specific gates not supported yet #####")
-            else:
-                # Using this on any gate other than (sparse) simplex, trimmed lasso simplex, softmax, topk softmax, dselect-k
-                # will trigger an error.
-                print("Weight recovery evaluation:")
-                # We first load the ground truth weights we expect to have recovered.
-                with open(
-                    "./data/raw/synthetic_regressions_frozen_experts/shared_features/gate_weights.pkl",
-                    "rb"
-                ) as f:
-                    all_ground_truth_weights = [
-                        ground_truth_weights.reshape(1,-1) for ground_truth_weights in pickle.load(f)
-                    ]
-                all_ground_truth_weights = np.concatenate(all_ground_truth_weights)
-                
-                # Then we extract the learned weights of the gates of our model.
-                # Some of our types of static gates need their underlying weights to be reparameterized in order to be compared
-                # to the ground truth.
-                all_gate_weights = []
-                for i,gate in enumerate(model.gates):
-                    gate_weights = gate.get_weights()[0]
-
-                    if "softmax" in gate.name and "top_k" in gate.name:
-                        topk = tf.math.top_k(
-                            tf.reshape(tf.expand_dims(gate_weights, 1), [-1]),
-                            k=gate.get_config()["k"]
-                        )
-                        topk_scattered = tf.scatter_nd(
-                            tf.reshape(topk.indices, [-1, 1]),
-                            topk.values,
-                            [gate_weights.shape[0]]
-                        )
-                        topk_prep = tf.where(
-                            tf.math.equal(topk_scattered, tf.constant(0.0)),
-                            -np.inf*tf.ones_like(topk_scattered),  # we add the mask here
-                            topk_scattered
-                        )
-                        gate_weights = tf.nn.softmax(
-                            tf.expand_dims(topk_prep, 1),  # else, we get an error in the softmax activation
-                            axis=0
-                        ).numpy()
-
-                    elif "softmax" in gate.name and ("topk" not in gate.name and "trimmed_lasso" not in gate.name):
-                        gate_weights = softmax(
-                            gate_weights
-                        )   
-                        
-                    elif "d_select_k" in gate.name:
-                        gate_weights = gate.gate.compute_expert_weights()[0].numpy()
-
-                    gate_weights = gate_weights.reshape(1,-1)
-
-                    print(f"--- Weights of gate for {config['taskset']['tasks'][i]['name']}: ---")
-                    print(gate_weights)
-                    print("\n")
-                    all_gate_weights.append(gate_weights)
-
-                all_gate_weights = np.concatenate(all_gate_weights)
-
-                # Now that we have loaded the ground truth weights 
-                # AND extracted/re-parameterized the learned weights of our gates, 
-                # we finally perform the weight recovery analysis.
-                _, perm_predicted_weights = AssignWeights(
-                    all_gate_weights,
-                    all_ground_truth_weights
-                )
-                weight_recovery_eval = WeightRecoveryEvaluation(
-                    all_ground_truth_weights,
-                    all_gate_weights[:,perm_predicted_weights],
-                )
-                
-                # We add our weight recovery measurements to the trial_results dict.
-                trial_results["weight_recovery"] = weight_recovery_eval
-    
-    
+        
     # Before finishing the trial, we save our trial_results dict in the all_results.json list file.
     try:
         with open(config["saving_bpath"] + "/performance/all_results.json", "r") as f:
@@ -778,8 +651,4 @@ def logging_callback(study, frozen_trial, save_freq=5):
 
 
 if __name__ == "__main__":
-    # from importlib import reload
-    # reload(tf.keras.models)
     main()
-    # model = tf.keras.models.load_model("/Users/mathieusibue/MBAn/RA/code/results/test_softmax_hyperparam_search/weights/tf_whole_model_1")
-    # model.summary()

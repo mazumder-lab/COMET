@@ -8,7 +8,6 @@ from model.gates import GatesMapper
 from model.task_specific_heads import HeadsMapper
 from model.shared_bottoms import BottomsMapper
 from model.permutations import PermutationsMapper
-from model.load_balancing import LoadBalancingMapper
 
 class MoE(tf.keras.Model):
 
@@ -35,7 +34,6 @@ class MoE(tf.keras.Model):
         # dictionary of the form {bottom_string_identifier: bottom_config} (just one)
         self.bottom_config = config["bottom"]
         self.taskset_id = config["taskset_id"]
-        self.load_balancing_config = config["load_balancing"]
 
         self.bottom = BottomsMapper[self.bottom_config["module"]](self.bottom_config["params"])
         self.heads = self._create_module_list(self.heads_config, HeadsMapper)   
@@ -67,11 +65,6 @@ class MoE(tf.keras.Model):
         print("==========self.no_of_permutations_per_task:", self.no_of_permutations_per_task)
         print("==========self.no_of_permutations_all_tasks:", self.no_of_permutations_all_tasks)
         
-        try:
-            self.load_balancing_config["params"]["nb_experts"] = len(self.experts)
-        except:
-            self.load_balancing_config["params"]["nb_experts"] = self.nb_experts
-        self.loadbalancing = LoadBalancingMapper[self.load_balancing_config["module"]](self.load_balancing_config["params"])
 
     def call(
         self,
@@ -107,59 +100,29 @@ class MoE(tf.keras.Model):
         
         # h3: [(bs, dim_h_exp) for i in range(nb_gates)]
         h3 = []
-        weights_soft_averages = []
-        weights_hard_averages = []
         
         if self.taskset_id in {2,4,11,17,18}:
             if len(h1.shape) > 2:
                 h1 = tf.reshape(h1, [h1.shape[0], -1])
             if self.permutation_per_task: 
                 for gate, perm in zip(self.gates, permutations):
-                    h3_temp, w_soft_av, w_hard_av = gate((h2, h1, perm), indices=indices)
-                    h3.append(h3_temp)
-                    weights_soft_averages.append(w_soft_av)
-                    weights_hard_averages.append(w_hard_av)                        
-                
-#                 h3 = [
-#                     gate((h2, h1, perm)) for gate, perm in zip(self.gates, permutations) 
-#                 ]
+                    h3_temp = gate((h2, h1, perm), indices=indices)
+                    h3.append(h3_temp)                
             else:
                 for gate in self.gates:
-                    h3_temp, w_soft_av, w_hard_av = gate((h2, h1, permutations[0]), indices=indices)
+                    h3_temp = gate((h2, h1, permutations[0]), indices=indices)
                     h3.append(h3_temp)
-                    weights_soft_averages.append(w_soft_av)
-                    weights_hard_averages.append(w_hard_av)                        
-#                 h3 = [
-#                     gate((h2, h1, permutations[0])) for gate in self.gates
-#                 ]                
         else:
             if len(x.shape) > 2:
                 x = tf.reshape(x, [x.shape[0], -1])
             if self.permutation_per_task:
                 for gate, perm in zip(self.gates, permutations):
-                    h3_temp, w_soft_av, w_hard_av = gate((h2, x, perm), indices=indices)
+                    h3_temp = gate((h2, x, perm), indices=indices)
                     h3.append(h3_temp)
-                    weights_soft_averages.append(w_soft_av)
-                    weights_hard_averages.append(w_hard_av)                        
-#                 h3 = [
-#                     gate((h2, x, perm)) for gate, perm in zip(self.gates, permutations)
-#                 ]
             else:
                 for gate in self.gates:
-                    h3_temp, w_soft_av, w_hard_av = gate((h2, x, permutations[0]), indices=indices)
+                    h3_temp = gate((h2, x, permutations[0]), indices=indices)
                     h3.append(h3_temp)
-                    weights_soft_averages.append(w_soft_av)
-                    weights_hard_averages.append(w_hard_av)                        
-#                 h3 = [
-#                     gate((h2, x, permutations[0])) for gate in self.gates
-#                 ]
-        #tf.print("\ngates output: ",h3)
-        weights_soft_averages = tf.stack(weights_soft_averages)
-        weights_hard_averages = tf.stack(weights_hard_averages)
-        weights_soft_averages = tf.reduce_mean(weights_soft_averages, axis=0)
-        weights_hard_averages = tf.reduce_mean(weights_hard_averages, axis=0)
-        load_balancing_loss = self.loadbalancing(weights_soft_averages, weights_hard_averages)
-        self.add_loss(load_balancing_loss)
         
         # y: [(bs, o_size) for i in range(nb_gates)]
         y = [
@@ -200,17 +163,3 @@ class MoE(tf.keras.Model):
                 raise ValueError("Incorrect nb of instances specified.")
 #         tf.print("=====================module_list:", module_list)
         return module_list
-
-
-    
-if __name__ == "__main__":
-    with open("./config/dense_experts_topk_simplex_gate.json") as f:
-        config = munchify(json.load(f))
-    model = MoE(config)
-    model.build(input_shape=(None,64))
-    print(model.summary())
-    x = tf.random.uniform(
-        (16, 64), minval=0, maxval=None, dtype=tf.dtypes.float32, seed=None, name=None
-    )
-    print(model(x)[1])
-

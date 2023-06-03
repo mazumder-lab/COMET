@@ -31,7 +31,7 @@
     ],
     "gates": [
         {
-            "module": "DSelectKWrapperGate",
+            "module": "COMETGate",
             "params": {
                 "k": {
                     "optuna_type": "suggest_categorical",
@@ -40,33 +40,18 @@
                 "input_size": 10,
                 "gamma": {
                     "optuna_type": "suggest_categorical",
-                    "values": [1e-3, 1e-2, 1e-1, 1, 5, 10]                            
+                    "values": [1e-2, 1e-1, 1, 5, 10]                      
                 },
-                "use_routing_input": true,
-                "use_in_training": true,
                 "entropy_reg": {
                     "optuna_type": "suggest_categorical",
                     "values": [5e-2, 1e-1, 5e-1, 1, 5, 10]  
                 },
                 "z_initializer": null,
-                "w_initializer": null,
-                "zeta": {
-                    "optuna_type": "suggest_categorical",
-                    "values": [1.0]  
-                }
+                "w_initializer": null
             },
             "instances": 2
         }
     ],
-    "load_balancing": {
-        "module": "NoLoadBalancing",
-        "params": {
-            "load_balancing_penalty": {
-                "optuna_type": "suggest_categorical",
-                "values": [0.0]  
-            }
-         }
-    },
     "heads": [
         {
             "module": "DenseClassifier",

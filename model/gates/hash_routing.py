@@ -119,7 +119,7 @@ class HashRoutingGate(tf.keras.layers.Layer):
         simplex_constraint_fails = tf.reduce_mean(simplex_constraint_fails, axis=0)
         self.add_metric(simplex_constraint_fails, name='simplex_constraint_fails_for_task_{}'.format(self.task+1))
 
-        return y, soft_averages, hard_averages
+        return y
         
         
     def get_config(self):

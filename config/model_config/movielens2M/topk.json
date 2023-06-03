@@ -31,25 +31,18 @@
     ],
     "gates": [
         {
-            "module": "SoftmaxGate",
+            "module": "TopkGate",
             "params": {
                 "input_size": 1,
-                "k": 1,
-                "use_routing_input": true,
-                "use_bias": true
+                "k": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [2]      
+                },
+                "jitter": false
             },
             "instances": 2
         }
     ],
-    "load_balancing": {
-        "module": "NoLoadBalancing",
-        "params": {
-            "load_balancing_penalty": {
-                "optuna_type": "suggest_categorical",
-                "values": [0.0]  
-            }
-         }
-    },
     "heads": [
         {
             "module": "DenseClassifier",

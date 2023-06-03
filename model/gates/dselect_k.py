@@ -96,8 +96,6 @@ class DSelectKWrapperGate(tf.keras.layers.Layer):
     ):
         super(DSelectKWrapperGate, self).__init__()
         print(config)
-        self.use_routing_input = config["use_routing_input"]
-        # self.use_in_training = config["use_in_training"]
         self.gate = DSelectKGate(
           config["k"],
           config["gamma"],
@@ -105,8 +103,6 @@ class DSelectKWrapperGate(tf.keras.layers.Layer):
           config["z_initializer"],
           config["w_initializer"],
           config["zeta"],
-          config.get("load_balancing_penalty", 0.),
-          config.get("exp_decay_mov_ave", 0.),
           config["task"]
         )
 
@@ -119,12 +115,8 @@ class DSelectKWrapperGate(tf.keras.layers.Layer):
         h, x, _ = inputs
         assert(all([h[i].shape[1] == h[i+1].shape[1] for i in range(len(h)-1)]))
 
-        if not self.use_routing_input:
-          y = self.gate(h, training=training)
-          return y
-        else:
-          y = self.gate(inputs, training=training)
-          return y
+        y = self.gate(inputs, training=training)
+        return y
 
 class DSelectKGate(tf.keras.layers.Layer):
     """A custom layer for selecting a sparse mixture of experts.
@@ -154,8 +146,6 @@ class DSelectKGate(tf.keras.layers.Layer):
         z_initializer=None,
         w_initializer=None,
         zeta=1.0,
-        load_balancing_penalty=0.,
-        exp_decay_mov_ave=0.,
         task=0,
     ):
         """DSelectKGate constructor.
@@ -179,8 +169,6 @@ class DSelectKGate(tf.keras.layers.Layer):
             -gamma / 100, gamma / 100)
         self._w_initializer = w_initializer or tf.keras.initializers.RandomUniform()
         self.zeta = zeta
-        self.load_balancing_penalty = load_balancing_penalty
-        self.exp_decay_mov_ave = exp_decay_mov_ave
 
     def build(self, input_shape):
         """Creates the layer's internal variables."""
@@ -318,7 +306,7 @@ class DSelectKGate(tf.keras.layers.Layer):
         if training:
             self._add_regularization_loss(selector_outputs_before_perm)
 
-        return output, soft_averages, hard_averages
+        return output
 
     def _compute_expert_weights(self):
         """Computes the weight vector for the experts.

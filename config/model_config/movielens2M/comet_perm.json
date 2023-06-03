@@ -48,28 +48,27 @@
     ],
     "gates": [
         {
-            "module": "TopkGate",
+            "module": "COMETGate",
             "params": {
-                "input_size": 1,
                 "k": {
                     "optuna_type": "suggest_categorical",
                     "values": [2]      
                 },
-                "use_routing_input": true,
-                "use_bias": true
+                "input_size": 10,
+                "gamma": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [10.0]                      
+                },
+                "entropy_reg": {
+                    "optuna_type": "suggest_categorical",
+                    "values": [5e-2, 1e-1, 5e-1, 1, 5, 10]
+                },
+                "z_initializer": null,
+                "w_initializer": null
             },
             "instances": 2
         }
     ],
-    "load_balancing": {
-        "module": "NoLoadBalancing",
-        "params": {
-            "load_balancing_penalty": {
-                "optuna_type": "suggest_categorical",
-                "values": [0.0]  
-            }
-         }
-    },
     "heads": [
         {
             "module": "DenseClassifier",

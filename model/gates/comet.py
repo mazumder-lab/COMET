@@ -85,7 +85,6 @@ class COMETGate(tf.keras.layers.Layer):
                  ):
         super(COMETGate, self).__init__()
         self.task = config["task"]
-        self.use_routing_input = config["use_routing_input"]
         self.nb_experts = config["nb_experts"]
         self.max_depth = (int)(np.ceil(np.log2(self.nb_experts)))
         self.k = config["k"]
@@ -102,47 +101,26 @@ class COMETGate(tf.keras.layers.Layer):
         
         self.entropy_reg = config["entropy_reg"]
             
-        if not self.use_routing_input:
-            if not self.leaf:
-                self.selector_weights = self.add_weight(
-                    name="selector_weights",
-                    shape=(1, self.k),
-                    initializer=self._z_initializer,
-                    trainable=True
-                )
-                self.left_child = COMETGate(config, 2*self.node_index+1, depth_index=self.depth_index+1, name="Node-"+str(2*self.node_index+1))
-                self.right_child = COMETGate(config, 2*self.node_index+2, depth_index=self.depth_index+1, name="Node-"+str(2*self.node_index+2))
-            else:
-                masking = np.zeros((1, 1, self.nb_experts))
-                masking[:,:,self.node_index-self.max_split_nodes] = masking[:,:, self.node_index-self.max_split_nodes] + 1
-                self.masking = tf.constant(masking, dtype=self.dtype)
-                self.output_weights = self.add_weight(
-                    name="output_weights",
-                    shape=(1, self.k),
-                    initializer=self._w_initializer,
-                    trainable=True
-                )
-        else:
-            if not self.leaf:
-                self.selector_layer = tf.keras.layers.Dense(
-                    self.k,
-                    use_bias=True,
-                    activation=self.activation,
-                    kernel_initializer=self._z_initializer,
-                    bias_initializer=self._z_initializer, 
-                )
-                self.left_child = COMETGate(config, 2*self.node_index+1, depth_index=self.depth_index+1, name="Node-"+str(2*self.node_index+1))
-                self.right_child = COMETGate(config, 2*self.node_index+2, depth_index=self.depth_index+1, name="Node-"+str(2*self.node_index+2))
+        if not self.leaf:
+            self.selector_layer = tf.keras.layers.Dense(
+                self.k,
+                use_bias=True,
+                activation=self.activation,
+                kernel_initializer=self._z_initializer,
+                bias_initializer=self._z_initializer, 
+            )
+            self.left_child = COMETGate(config, 2*self.node_index+1, depth_index=self.depth_index+1, name="Node-"+str(2*self.node_index+1))
+            self.right_child = COMETGate(config, 2*self.node_index+2, depth_index=self.depth_index+1, name="Node-"+str(2*self.node_index+2))
 
-            else:
-                self.output_layer = tf.keras.layers.Dense(
-                    self.k,
-                    use_bias=True,
-                    activation=None,
-                    kernel_initializer=self._w_initializer,
-                    bias_initializer=self._w_initializer,    
-                    kernel_regularizer=tf.keras.regularizers.L2(self.L2)
-                )
+        else:
+            self.output_layer = tf.keras.layers.Dense(
+                self.k,
+                use_bias=True,
+                activation=None,
+                kernel_initializer=self._w_initializer,
+                bias_initializer=self._w_initializer,    
+                kernel_regularizer=tf.keras.regularizers.L2(self.L2)
+            )
                             
     def build(self, input_shape):
         pass
@@ -179,163 +157,103 @@ class COMETGate(tf.keras.layers.Layer):
         f = tf.concat(f, axis=2)
         # tf.print("f concat shape: ", f.shape)
         
-        if not self.use_routing_input:
-            if not self.leaf:
-                # shape = (batch_size, k)
-                current_prob = self.activation(self.selector_weights) # (b=1, k)
-                f_left_child, w_left_child = self.left_child(inputs, training=training, prob=current_prob * prob)
-                f_right_child, w_right_child = self.right_child(inputs, training=training, prob=(1 - current_prob) * prob)
-                f_agg = f_left_child + f_right_child
-                w_concat = tf.concat([w_left_child, w_right_child], axis=-1)
-                if self.node_index==0:
-                    w_agg = tf.reduce_sum(w_concat, axis=-1)
-                    y = f_agg/w_agg
-                    w_concat = w_concat/tf.reduce_sum(w_concat, axis=-1, keepdims=True)  # (b=1, 1, nb_experts)
-                    # Compute s_bj
-                    s_concat = tf.where(
-                        tf.math.less(w_concat, 1e-5),
-                        tf.ones_like(w_concat),
-                        tf.zeros_like(w_concat)
-                    ) # (b, 1, nb_experts)
-                    s_avg = tf.reduce_mean(s_concat, axis=-1) # (b, 1)
-#                     tf.print("======s_avg.shape:", s_avg.shape)
+        if not self.leaf:
+            # shape = (batch_size, k)
+            current_prob = self.selector_layer(x) # (batch_size, k)
+            s_left_child = self.left_child(inputs, training=training, prob=current_prob * prob)
+            s_right_child = self.right_child(inputs, training=training, prob=(1 - current_prob) * prob)
+            s_bj = tf.concat([s_left_child, s_right_child], axis=-1)
 
-                    avg_sparsity = tf.reduce_mean(s_avg) # average over batch
-                    self.add_metric(
-                        avg_sparsity,
-                        name='avg_sparsity'
-                    )    
-                    return y
-                else:
-                    return f_agg, w_concat
-            else:
-                # prob's shape = (b=1, k)
-                # Computing a_bij,    a_bij shape = (b=1, k)
-                a_bij = self.output_weights # (b=1, k) # Note we do not have access to j as j represents leaves
-                a_exp_bij = tf.math.exp(a_bij)
-                r_bij = prob * a_exp_bij # (b=1, k)
-                r_bij = tf.expand_dims(r_bij, axis=1) # (b=1, 1, k)
-                
-                # Computing w_bj, 
-                w_bj = tf.reduce_sum(r_bij, axis=-1) # (b=1, 1, k) -> (b=1, 1)
-                w_bj = tf.expand_dims(w_bj, axis=-1) # (b=1, 1, 1)
-#                 tf.print("======w_bj.shape: ", w_bj.shape)
-                
-                # Computing f_bj
-                # Get output of specific expert:  f:(b, dim_exp_i, nb_experts), self.masking: (1, 1, self.nb_experts)
-                h_bj = tf.reduce_sum(f * self.masking, axis=-1, keepdims=True) # (b, dim_exp_i, 1)
-                f_bij = r_bij * h_bj # (b, dim_exp_i, k)
-                f_bj = tf.reduce_sum(f_bij, axis=-1) # (b, dim_exp_i, k) -> (b, dim_exp_i) 
-#                 tf.print("======f_bj.shape: ", f_bj.shape)
-                
-                regularization_per_expert = control_flow_util.smart_cond(
-                    training, 
-                    lambda: self._compute_entropy_regularization_per_expert(prob, self.entropy_reg),
-                    lambda: tf.zeros(())
+
+            if self.node_index==0:
+                f = tf.expand_dims(f, axis=2) # (b, dim_exp_i, 1, nb_experts)
+
+                s_bj = tf.reshape(s_bj, shape=[tf.shape(s_bj)[0], -1]) # (b, k*nb_experts)
+                g = tf.nn.softmax(s_bj, axis=-1) # (b, k*nb_experts)
+                g = tf.reshape(g, shape=[tf.shape(s_bj)[0], self.k, self.nb_experts]) # (b, k, nb_experts)
+                g = tf.expand_dims(g, axis=1) # (b, 1, k, nb_experts)
+
+                # g: (b, 1, k, nb_experts), perm_mask: [k, nb_experts, nb_experts]
+
+                g_permuted = tf.einsum('bijk,jkl->bijl', g, permutation_weights)
+                g_permuted = tf.reduce_sum(g_permuted, axis=2, keepdims=True) # (b, 1, 1, nb_experts)
+                g_permuted = g_permuted/tf.reduce_sum(g_permuted, axis=-1, keepdims=True)  # (b, 1, 1, nb_experts)
+
+
+                # f:(b, dim_exp_i, 1, nb_experts) * g_permuted: (b, 1, 1, nb_experts)
+                y = tf.reduce_sum(f * g_permuted, axis=[2,3]) # (b, dim_exp_i, 1, nb_experts) -> (b, dim_exp_i)
+
+                # Compute s_bj
+                s_concat = tf.where(
+                    tf.math.less(g_permuted, 1e-5),
+                    tf.ones_like(g_permuted),
+                    tf.zeros_like(g_permuted)
+                ) # (b, 1, 1, nb_experts)
+                s_avg = tf.reduce_mean(s_concat, axis=-1) # (b, 1, 1)
+
+                avg_sparsity = tf.reduce_mean(s_avg) # average over batch
+                self.add_metric(
+                    avg_sparsity,
+                    name='avg_sparsity'
+                )    
+                soft_averages = tf.reduce_mean(g_permuted, axis=[0,1,2]) # (nb_experts,)
+                hard_averages = tf.reduce_mean(tf.ones_like(s_concat)-s_concat, axis=[0,1,2]) # (nb_experts,)
+                soft_averages_for_all_experts_list = tf.split(
+                    tf.reshape(soft_averages, [-1]),
+                    self.nb_experts
                 )
-                self.add_loss(      
-                    regularization_per_expert
-                ) 
-
-                return f_bj, w_bj
-        else:
-            if not self.leaf:
-                # shape = (batch_size, k)
-                current_prob = self.selector_layer(x) # (batch_size, k)
-                s_left_child = self.left_child(inputs, training=training, prob=current_prob * prob)
-                s_right_child = self.right_child(inputs, training=training, prob=(1 - current_prob) * prob)
-                s_bj = tf.concat([s_left_child, s_right_child], axis=-1)
-
-
-                if self.node_index==0:
-                    f = tf.expand_dims(f, axis=2) # (b, dim_exp_i, 1, nb_experts)
-        
-                    s_bj = tf.reshape(s_bj, shape=[tf.shape(s_bj)[0], -1]) # (b, k*nb_experts)
-                    g = tf.nn.softmax(s_bj, axis=-1) # (b, k*nb_experts)
-                    g = tf.reshape(g, shape=[tf.shape(s_bj)[0], self.k, self.nb_experts]) # (b, k, nb_experts)
-                    g = tf.expand_dims(g, axis=1) # (b, 1, k, nb_experts)
-
-                    # g: (b, 1, k, nb_experts), perm_mask: [k, nb_experts, nb_experts]
-
-                    g_permuted = tf.einsum('bijk,jkl->bijl', g, permutation_weights)
-                    g_permuted = tf.reduce_sum(g_permuted, axis=2, keepdims=True) # (b, 1, 1, nb_experts)
-                    g_permuted = g_permuted/tf.reduce_sum(g_permuted, axis=-1, keepdims=True)  # (b, 1, 1, nb_experts)
-                    
-
-                    # f:(b, dim_exp_i, 1, nb_experts) * g_permuted: (b, 1, 1, nb_experts)
-                    y = tf.reduce_sum(f * g_permuted, axis=[2,3]) # (b, dim_exp_i, 1, nb_experts) -> (b, dim_exp_i)
-
-                    # Compute s_bj
-                    s_concat = tf.where(
-                        tf.math.less(g_permuted, 1e-5),
-                        tf.ones_like(g_permuted),
-                        tf.zeros_like(g_permuted)
-                    ) # (b, 1, 1, nb_experts)
-                    s_avg = tf.reduce_mean(s_concat, axis=-1) # (b, 1, 1)
-
-                    avg_sparsity = tf.reduce_mean(s_avg) # average over batch
-                    self.add_metric(
-                        avg_sparsity,
-                        name='avg_sparsity'
-                    )    
-                    soft_averages = tf.reduce_mean(g_permuted, axis=[0,1,2]) # (nb_experts,)
-                    hard_averages = tf.reduce_mean(tf.ones_like(s_concat)-s_concat, axis=[0,1,2]) # (nb_experts,)
-                    soft_averages_for_all_experts_list = tf.split(
-                        tf.reshape(soft_averages, [-1]),
-                        self.nb_experts
-                    )
-                    [self.add_metric(le, name='soft_averages_for_task_{}_for_expert_{}'.format(self.task+1, j)) for j, le in enumerate(soft_averages_for_all_experts_list)]
-                    hard_averages_for_all_experts_list = tf.split(
-                        tf.reshape(hard_averages, [-1]),
-                        self.nb_experts
-                    )
+                [self.add_metric(le, name='soft_averages_for_task_{}_for_expert_{}'.format(self.task+1, j)) for j, le in enumerate(soft_averages_for_all_experts_list)]
+                hard_averages_for_all_experts_list = tf.split(
+                    tf.reshape(hard_averages, [-1]),
+                    self.nb_experts
+                )
 #                     [self.add_metric(le, name='hard_averages_for_task_{}_for_expert_{}'.format(self.task+1, j)) for j, le in enumerate(hard_averages_for_all_experts_list)]   
-                    
-                    simplex_constraint = tf.reduce_mean(
-                        tf.reduce_sum(g_permuted, axis=-1),
-                    )
-                    self.add_metric(simplex_constraint, name='simplex_sum_for_task_{}'.format(self.task+1))
 
-                    simplex_constraint_fails = tf.reduce_sum(
-                        tf.reduce_sum(g_permuted, axis=-1),
-                        axis=[1,2]
-                    ) # (b, )
-
-                    simplex_constraint_fails = tf.where(
-                        tf.math.less(simplex_constraint_fails, 1.0-1e-5),
-                        tf.ones_like(simplex_constraint_fails),
-                        tf.zeros_like(simplex_constraint_fails)
-                    ) # (b, )
-                    simplex_constraint_fails = tf.reduce_mean(simplex_constraint_fails, axis=0)
-                    self.add_metric(simplex_constraint_fails, name='simplex_constraint_fails_for_task_{}'.format(self.task+1))
-                    
-                    return y, soft_averages, hard_averages
-                else:
-                    return s_bj#, s_bj_sp
-            else:
-                # prob's shape = (b, k)
-                # Computing a_bij,    a_bij shape = (b, k)
-                a_bij = self.output_layer(x) # (b, k) # Note we do not have access to j as j represents leaves
-
-                prob = tf.expand_dims(prob, axis=-1) # (b, k, 1)
-                a_bij = tf.expand_dims(a_bij, axis=-1) # (b, k, 1)                
-                log_prob = tf.where(
-                    tf.math.less_equal(prob, tf.constant(0.0)),
-                    (tf.experimental.numpy.finfo(tf.float32).min)*tf.ones_like(prob),              
-                    # tf.math.log(prob+tf.experimental.numpy.finfo(tf.float32).eps)
-                    tf.math.log(prob+1e-8)
+                simplex_constraint = tf.reduce_mean(
+                    tf.reduce_sum(g_permuted, axis=-1),
                 )
+                self.add_metric(simplex_constraint, name='simplex_sum_for_task_{}'.format(self.task+1))
+
+                simplex_constraint_fails = tf.reduce_sum(
+                    tf.reduce_sum(g_permuted, axis=-1),
+                    axis=[1,2]
+                ) # (b, )
+
+                simplex_constraint_fails = tf.where(
+                    tf.math.less(simplex_constraint_fails, 1.0-1e-5),
+                    tf.ones_like(simplex_constraint_fails),
+                    tf.zeros_like(simplex_constraint_fails)
+                ) # (b, )
+                simplex_constraint_fails = tf.reduce_mean(simplex_constraint_fails, axis=0)
+                self.add_metric(simplex_constraint_fails, name='simplex_constraint_fails_for_task_{}'.format(self.task+1))
+
+                return y
+            else:
+                return s_bj#, s_bj_sp
+        else:
+            # prob's shape = (b, k)
+            # Computing a_bij,    a_bij shape = (b, k)
+            a_bij = self.output_layer(x) # (b, k) # Note we do not have access to j as j represents leaves
+
+            prob = tf.expand_dims(prob, axis=-1) # (b, k, 1)
+            a_bij = tf.expand_dims(a_bij, axis=-1) # (b, k, 1)                
+            log_prob = tf.where(
+                tf.math.less_equal(prob, tf.constant(0.0)),
+                (tf.experimental.numpy.finfo(tf.float32).min)*tf.ones_like(prob),              
+                # tf.math.log(prob+tf.experimental.numpy.finfo(tf.float32).eps)
+                tf.math.log(prob+1e-8)
+            )
 #                 s_bj = tf.reduce_logsumexp(a_bij+log_prob, axis=-1, keepdims=True) # (b, 1)
 #                 s_bj_sp = tf.reduce_logsumexp(a_bij+tf.math.log(prob),axis=-1,keepdims=True)
-                s_bj = a_bij+log_prob # (b, k, 1) 
-    
-                regularization_per_expert = control_flow_util.smart_cond(
-                    training, 
-                    lambda: self._compute_entropy_regularization_per_expert(prob, self.entropy_reg),
-                    lambda: tf.zeros(())
-                )
-                self.add_loss(      
-                    regularization_per_expert
-                ) 
+            s_bj = a_bij+log_prob # (b, k, 1) 
 
-                return s_bj #,s_bj_sp
+            regularization_per_expert = control_flow_util.smart_cond(
+                training, 
+                lambda: self._compute_entropy_regularization_per_expert(prob, self.entropy_reg),
+                lambda: tf.zeros(())
+            )
+            self.add_loss(      
+                regularization_per_expert
+            ) 
+
+            return s_bj #,s_bj_sp
