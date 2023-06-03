@@ -23,7 +23,6 @@ Here is the available command to perform hyperparameter search (using the random
 
 ```
 python3 main.py 
---from_pretrained optional_path_to_pretrained_weights_of_our_architecture
 --model_config path_to_specific_model_config_file_with_hyperopt_fields 
 --train_config path_to_specific_train_config_file_with_hyperopt_fields 
 --task_config path_to_all_task_configs 
@@ -32,7 +31,6 @@ python3 main.py
 --seed optional_int_seed_for_reproducibility
 --max_hyperparameter_evals optional_int_nb_of_trials_with_different_combinations_of_hyperparameters
 --no_weight_saving
---perform_weight_recovery_analysis
 ```
 
 
